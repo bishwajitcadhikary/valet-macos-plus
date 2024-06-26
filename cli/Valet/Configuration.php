@@ -2,6 +2,8 @@
 
 namespace Valet;
 
+use JsonException;
+
 class Configuration
 {
     public function __construct(public Filesystem $files) {}
@@ -159,6 +161,26 @@ class Configuration
                 return $this->files->isDir($path);
             })->values()->all();
         }));
+    }
+
+
+    /**
+     * Get a configuration value.
+     * @throws JsonException
+     */
+    public function get(string $key, $default = null): mixed
+    {
+        $config = $this->read();
+
+        return array_key_exists($key, $config) ? $config[$key] : $default;
+    }
+
+    /**
+     * Get a configuration value.
+     */
+    public function set(string $key, $value): array
+    {
+        return $this->updateKey($key, $value);
     }
 
     /**

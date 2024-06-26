@@ -135,6 +135,23 @@ class Brew
     }
 
     /**
+     * Determine if a compatible nginx version is Homebrewed.
+     */
+    public function hasInstalledMySql(): bool
+    {
+        return $this->installed('mysql')
+            || $this->installed('mysql@8.0');
+    }
+
+    /**
+     * Return name of the nginx service installed via Homebrew.
+     */
+    public function mySqlServiceName(): string
+    {
+        return $this->installed('mysql@8.0') ? 'mysql@8.0' : 'mysql';
+    }
+
+    /**
      * Ensure that the given formula is installed.
      */
     public function ensureInstalled(string $formula, array $options = [], array $taps = []): void

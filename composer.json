@@ -1,20 +1,12 @@
 {
-    "name": "laravel/valet",
+    "name": "bishwajitcadhikary/valet-macos-plus",
     "description": "A more enjoyable local development experience for Mac.",
     "keywords": ["laravel", "zonda", "wwdhhd"],
     "license": "MIT",
     "authors": [
         {
-            "name": "Taylor Otwell",
-            "email": "taylor@laravel.com"
-        },
-        {
-            "name": "Adam Wathan",
-            "email": "adam.wathan@gmail.com"
-        },
-        {
-            "name": "Matt Stauffer",
-            "email": "matt@tighten.co"
+            "name": "Bishwajit Adhikary",
+            "email": "bishwajitcadhikary@gmail.com"
         }
     ],
     "autoload": {
@@ -45,7 +37,8 @@
         "symfony/console": "^3.0|^4.0|^5.0|^6.0|^7.0",
         "symfony/process": "^3.0|^4.0|^5.0|^6.0|^7.0",
         "guzzlehttp/guzzle": "^6.0|^7.4",
-        "symfony/event-dispatcher": "^3.0|^4.0|^5.0|^6.0|^7.0"
+        "symfony/event-dispatcher": "^3.0|^4.0|^5.0|^6.0|^7.0",
+      "ext-pdo": "*"
     },
     "require-dev": {
         "mockery/mockery": "^1.2.3",
