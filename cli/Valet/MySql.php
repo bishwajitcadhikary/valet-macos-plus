@@ -2,6 +2,7 @@
 
 namespace Valet;
 
+use ConsoleComponents\Writer;
 use PDO;
 
 class MySql
@@ -13,24 +14,25 @@ class MySql
         'performance_schema',
         'sys',
         'mysql_temp',
-        'phpmyadmin',
     ];
 
     private ?PDO $pdoConnection = null;
 
     public function __construct(
         public Brew $brew,
-        public CommandLine $cli,
         public Filesystem $files,
         public Configuration $configuration,
-        public Site $site
+        public CommandLine $cli,
     ) {}
     public function install(): void
     {
         if (!$this->brew->hasInstalledMySql()) {
             $this->brew->installOrFail('mysql', []);
-
-            $this->createValetUser('');
+            $this->restart();
+            $password = Writer::ask(sprintf("Please enter new password for [%s] database user:", static::DEFAULT_USER));
+            $this->createValetUser($password);
+        }else{
+            $this->configure();
         }
     }
 
@@ -61,32 +63,65 @@ class MySql
     }
 
     /**
-     * Configure database user for valet.
+     * Create a new mysql user.
      */
-
-    public function isConfigured(): bool
+    private function createValetUser(string|null $password = null): void
     {
-        /** @var array<string, string> $config */
-        $config = $this->configuration->get('mysql', []);
+        $success = true;
+        $query = "sudo mysql -e \"CREATE USER '".static::DEFAULT_USER."'@'localhost' IDENTIFIED WITH mysql_native_password BY '".$password."';GRANT ALL PRIVILEGES ON *.* TO '".static::DEFAULT_USER."'@'localhost' WITH GRANT OPTION;FLUSH PRIVILEGES;\"";
+        $this->cli->run(
+            $query,
+            function ($statusCode, $error) use (&$success) {
+                warning('Setting password for valet user failed due to `['.$statusCode.'] '.$error.'`');
+                $success = false;
+            }
+        );
 
-        return isset($config['user']);
-    }
+        if ($success !== false) {
+            /** @var array<string, string> $config */
+            $config = $this->configuration->get('mysql', []);
 
-    public function configureUser(string $user, string|null $password): bool
-    {
-        /** @var array<string, string> $config */
-        $config = $this->configuration->get('mysql', []);
-
-        $connection = $this->validateCredentials($user, $password);
-        if ($connection) {
-            $config['user'] = $user;
+            $config['user'] = static::DEFAULT_USER;
             $config['password'] = $password;
             $this->configuration->set('mysql', $config);
 
-            return true;
+            info('Valet database user configured successfully');
+        }
+    }
+
+    public function configure(bool $force = false): void
+    {
+        /** @var array<string, string> $config */
+        $config = $this->configuration->get('mysql', []);
+        if (!$force && isset($config['password'])) {
+            Writer::info('Valet database user is already configured. Use --force to reconfigure database user.');
+            return;
         }
 
-        return false;
+        $defaultUser = null;
+        if (!empty($config['user'])) {
+            $defaultUser = $config['user'];
+        }
+        /** @var string $user */
+        $user = Writer::ask('Please enter MySQL/MariaDB user:', $defaultUser);
+
+        /** @var string $password */
+        $password = Writer::ask('Please enter MySQL/MariaDB password:');
+
+        $connection = $this->validateCredentials($user, $password);
+        if (!$connection) {
+            $confirm = Writer::confirm('Would you like to try again?', true);
+            if (!$confirm) {
+                Writer::warn('Valet database user is not configured');
+                return;
+            }
+            $this->configure($force);
+            return;
+        }
+        $config['user'] = $user;
+        $config['password'] = $password;
+        $this->configuration->set('mysql', $config);
+        Writer::info('Database user configured successfully');
     }
 
     public function listDatabases()
@@ -102,26 +137,36 @@ class MySql
     /**
      * Create a new mysql database.
      */
-    public function createDatabase(string $name): bool
+    public function createDatabase(string|null $database = null): bool
     {
-        if ($this->isDatabaseExists($name)) {
-            warning("Database `$name` already exists.");
+        if ($database === null) {
+            $database = Writer::ask('Enter the name of the database:');
+            if (!$database) {
+                warning('No new MySQL database was created.');
+                return false;
+            }
+        }
+
+        if ($this->isDatabaseExists($database)) {
+            warning("Database `$database` already exists.");
 
             return false;
         }
 
-        if ($this->isSystemDatabase($name)) {
-            warning("Database `$name` is a system database.");
+        if ($this->isSystemDatabase($database)) {
+            warning("Database `$database` is a system database.");
             return false;
         }
 
-        $isCreated = (bool)$this->query("CREATE DATABASE `$name`");
+        $isCreated = (bool)$this->query("CREATE DATABASE `$database`");
 
         if (!$isCreated){
-            warning("Failed to create database `$name`.");
+            warning("Failed to create database `$database`.");
 
             return false;
         }
+
+        info("Database `$database` created successfully.");
 
         return true;
     }
@@ -129,26 +174,47 @@ class MySql
     /**
      * Drop a mysql database.
      */
-    public function dropDatabase(string $name): bool
+    public function dropDatabase(string|null $database, bool $yes = false): bool
     {
-        if (!$this->isDatabaseExists($name)) {
-            warning("Database `$name` does not exist.");
+        if (!$database) {
+            $databases = MySql::listDatabases();
+
+            if (empty($databases)) {
+                warning('No MySQL databases found.');
+                return false;
+            }
+
+            $database = Writer::choice('Which database would you like to drop?', $databases);
+        }
+
+        if (!$yes) {
+            $confirm = Writer::confirm('Are you sure you want to drop the database?');
+            if (!$confirm) {
+                warning('No MySQL databases were dropped.');
+                return false;
+            }
+        }
+
+        if (!$this->isDatabaseExists($database)) {
+            warning("Database `$database` does not exist.");
 
             return false;
         }
 
-        if ($this->isSystemDatabase($name)) {
-            warning("Database `$name` is a system database.");
+        if ($this->isSystemDatabase($database)) {
+            warning("Database `$database` is a system database.");
             return false;
         }
 
-        $isDropped = (bool)$this->query("DROP DATABASE `$name`");
+        $isDropped = (bool)$this->query("DROP DATABASE `$database`");
 
         if (!$isDropped){
-            warning("Failed to drop database `$name`.");
+            warning("Failed to drop database `$database`.");
 
             return false;
         }
+
+        info("Database `$database` dropped successfully.");
 
         return true;
     }
@@ -156,17 +222,38 @@ class MySql
     /**
      * Reset a mysql database.
      */
-    public function resetDatabase($name): bool
+    public function resetDatabase(string|null $database = null, bool $yes = false): bool
     {
-        if (!$this->dropDatabase($name)) {
-            warning("Failed to reset database `$name`.");
+        if ($database == null) {
+            $databases = MySql::listDatabases();
+
+            if (empty($databases)) {
+                warning('No MySQL databases found.');
+                return false;
+            }
+
+            $database = Writer::choice('Which database would you like to reset?', $databases);
+        }
+
+        if (!$yes) {
+            $confirm = Writer::confirm('Are you sure you want to reset the database?');
+            if (!$confirm) {
+                warning('No MySQL databases were reset.');
+                return false;
+            }
+        }
+
+        if (!$this->dropDatabase($database, true)) {
+            warning("Failed to reset database `$database`.");
             return false;
         }
 
-        if (!$this->createDatabase($name)) {
-            warning("Failed to reset database `$name`.");
+        if (!$this->createDatabase($database)) {
+            warning("Failed to reset database `$database`.");
             return false;
         }
+
+        info("Database `$database` reset successfully.");
 
         return true;
     }
@@ -174,14 +261,43 @@ class MySql
     /**
      * Import a mysql database.
      */
-    public function importDatabase($name, $file): bool
+    public function importDatabase(string|null $database = null, string|null $file = null, bool $force = false): bool
     {
-        if (!$this->isDatabaseExists($name)) {
-            $this->createDatabase($name);
+        if (!$database) {
+            $databases = MySql::listDatabases();
+
+            if (empty($databases)) {
+                warning('No MySQL databases found.');
+                return false;
+            }
+
+            $database = Writer::choice('Which database would you like to import to?', $databases);
         }
 
-        if ($this->isSystemDatabase($name)) {
-            warning("Database `$name` is a system database.");
+        if (!$file) {
+            $file = Writer::ask('Enter the path to the SQL file:');
+        }
+
+        if (!$this->files->exists($file)) {
+            warning("The file `$file` does not exist.");
+            return false;
+        }
+
+        if ($this->isDatabaseExists($database)) {
+            if (!$force) {
+                $question = Writer::confirm('The database already exists. Do you want to overwrite it?');
+
+                if (!$question) {
+                    warning('No MySQL databases were imported.');
+                    return false;
+                }
+            }
+        }else{
+            $this->createDatabase($database);
+        }
+
+        if ($this->isSystemDatabase($database)) {
+            warning("Database `$database` is a system database.");
             return false;
         }
 
@@ -194,7 +310,7 @@ class MySql
             $file = escapeshellarg($file);
             $sqlFile = " < {$file}";
         }
-        $database = escapeshellarg($name);
+        $database = escapeshellarg($database);
         $credentials = $this->getCredentials();
         $this->cli->run(
             \sprintf(
@@ -207,12 +323,24 @@ class MySql
             )
         );
 
+        info("The $file file has been imported to the $database database.");
         return true;
     }
 
-    public function exportDatabase($name, bool $exportAsSql = false): array
+    public function exportDatabase($database, bool $exportAsSql = false): bool
     {
-        $filename = $name.'-'.\date('Y-m-d-H-i-s', \time());
+        if (!$database) {
+            $databases = MySql::listDatabases();
+
+            if (empty($databases)) {
+                warning('No MySQL databases found.');
+                return false;
+            }
+
+            $database = Writer::choice('Which database would you like to export?', $databases);
+        }
+
+        $filename = $database.'-'.\date('Y-m-d-H-i-s', \time());
         $filename = $exportAsSql ? $filename.'.sql' : $filename.'.sql.gz';
 
         $credentials = $this->getCredentials();
@@ -220,17 +348,18 @@ class MySql
             'mysqldump -u %s -p%s %s %s > %s',
             $credentials['user'],
             $credentials['password'],
-            $name,
+            $database,
             $exportAsSql ? '' : '| gzip',
             escapeshellarg($filename)
         );
 
         $this->cli->runAsUser($command);
 
-        return [
-            'database' => $name,
-            'filename' => $filename,
-        ];
+        $fullPath = \getcwd().'/'.$filename;
+
+        info("The $database database has been exported to the $fullPath file.");
+
+        return true;
     }
 
     public function getDefaultUser(): string
@@ -238,17 +367,17 @@ class MySql
         return static::DEFAULT_USER;
     }
 
-    public function isDatabaseExists($name): bool
+    public function isDatabaseExists($database): bool
     {
-        $query = $this->query("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '$name'");
+        $query = $this->query("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '$database'");
         $query->execute();
 
         return (bool) $query->rowCount();
     }
 
-    public function isSystemDatabase($name): bool
+    public function isSystemDatabase($database): bool
     {
-        return in_array($name, static::SYSTEM_DATABASES);
+        return in_array($database, static::SYSTEM_DATABASES);
     }
 
     /**
@@ -286,31 +415,6 @@ class MySql
             warning('Invalid database credentials');
 
             return false;
-        }
-    }
-
-    /**
-     * Set root password of Mysql.
-     */
-    private function createValetUser(string|null $password = null): void
-    {
-        $success = true;
-        $query = "sudo mysql -e \"CREATE USER '".static::DEFAULT_USER."'@'localhost' IDENTIFIED WITH mysql_native_password BY '".$password."';GRANT ALL PRIVILEGES ON *.* TO '".static::DEFAULT_USER."'@'localhost' WITH GRANT OPTION;FLUSH PRIVILEGES;\"";
-        $this->cli->run(
-            $query,
-            function ($statusCode, $error) use (&$success) {
-                warning('Setting password for valet user failed due to `['.$statusCode.'] '.$error.'`');
-                $success = false;
-            }
-        );
-
-        if ($success !== false) {
-            /** @var array<string, string> $config */
-            $config = $this->configuration->get('mysql', []);
-
-            $config['user'] = static::DEFAULT_USER;
-            $config['password'] = $password;
-            $this->configuration->set('mysql', $config);
         }
     }
 

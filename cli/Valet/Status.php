@@ -149,6 +149,20 @@ class Status
                 },
                 'debug' => 'Run `valet install`.',
             ],
+            [
+                'description' => 'Is MySQL installed?',
+                'check' => function () {
+                    return $this->brew->installed('mysql');
+                },
+                'debug' => 'Run `valet install`.',
+            ],
+            [
+                'description' => 'Is MySQL running?',
+                'check' => function () {
+                    return $this->isBrewServiceRunning('mysql');
+                },
+                'debug' => 'Run `valet restart`.',
+            ],
         ];
     }
 

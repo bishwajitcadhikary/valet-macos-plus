@@ -8,9 +8,7 @@ use Symfony\Component\Console\ConsoleEvents;
 use Symfony\Component\Console\Event\ConsoleCommandEvent;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
-use Symfony\Component\Console\Question\Question;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Valet\Drivers\ValetDriver;
 use function Valet\info;
@@ -90,13 +88,13 @@ $app->command('status', function (OutputInterface $output) {
     table(['Check', 'Success?'], $status['output']);
 
     if ($status['success']) {
-        return Command::SUCCESS;
+        return CommandAlias::SUCCESS;
     }
 
     info(PHP_EOL . 'Debug suggestions:');
     info($status['debug']);
 
-    return Command::FAILURE;
+    return CommandAlias::FAILURE;
 })->descriptions('Output the status of Valet and its installed services and config.');
 
 /**
@@ -113,7 +111,9 @@ if (is_dir(VALET_HOME_PATH)) {
      */
     $app->command('tld [tld]', function (InputInterface $input, OutputInterface $output, $tld = null) {
         if ($tld === null) {
-            return output(Configuration::read()['tld']);
+            output(Configuration::read()['tld']);
+
+            return CommandAlias::SUCCESS;
         }
 
         $helper = $this->getHelperSet()->get('question');
@@ -123,7 +123,9 @@ if (is_dir(VALET_HOME_PATH)) {
         );
 
         if ($helper->ask($input, $output, $question) === false) {
-            return warning('No new Valet tld was set.');
+            warning('No new Valet tld was set.');
+
+            return CommandAlias::FAILURE;
         }
 
         DnsMasq::updateTld(
@@ -138,6 +140,8 @@ if (is_dir(VALET_HOME_PATH)) {
         Nginx::restart();
 
         info('Your Valet TLD has been updated to [' . $tld . '].');
+
+        return CommandAlias::SUCCESS;
     }, ['domain'])->descriptions('Get or set the TLD used for Valet sites.');
 
     /**
@@ -897,24 +901,7 @@ if (is_dir(VALET_HOME_PATH)) {
      * Create a new MySQL database.
      */
     $app->command('db:create [database]', function (InputInterface $input, OutputInterface $output, $database) {
-        if ($database === null) {
-            $helper = $this->getHelperSet()->get('question');
-            $question = new Question('Enter the name of the database: ');
-
-            if (!$database = $helper->ask($input, $output, $question)) {
-                warning('No new MySQL database was created.');
-                return CommandAlias::FAILURE;
-            }
-        }
-
-        $isCreated = MySql::createDatabase($database);
-
-        if ($isCreated) {
-            info('Database [' . $database . '] has been created.');
-            return CommandAlias::SUCCESS;
-        }
-
-        return CommandAlias::FAILURE;
+       MySql::createDatabase($database);
     })->descriptions('Create a new MySQL database', [
         'database' => 'The name of the database to create',
     ]);
@@ -923,34 +910,7 @@ if (is_dir(VALET_HOME_PATH)) {
      * Drop a MySQL database.
      */
     $app->command('db:drop [database] [-y|--yes]', function (InputInterface $input, OutputInterface $output, $database, $yes) {
-        if (!$database) {
-            $databases = MySql::listDatabases();
-
-            if (empty($databases)) {
-                warning('No MySQL databases found.');
-                return CommandAlias::FAILURE;
-            }
-
-            $database = $this->getHelperSet()->get('question')->ask($input, $output, new ChoiceQuestion('Choose a database to drop:', $databases));
-        }
-
-        if (!$yes) {
-            $question = new ConfirmationQuestion('Are you sure you want to drop the database [' . $database . ']? [y/N] ', false);
-
-            if (!$this->getHelperSet()->get('question')->ask($input, $output, $question)) {
-                warning('No MySQL database was drop.');
-                return CommandAlias::FAILURE;
-            }
-        }
-
-        $isDropped = MySql::dropDatabase($database);
-
-        if ($isDropped) {
-            info('Database [' . $database . '] has been dropped.');
-            return CommandAlias::SUCCESS;
-        }
-
-        return CommandAlias::FAILURE;
+        MySql::dropDatabase($database, $yes);
     })->descriptions('Drop a MySQL database', [
         'database' => 'The name of the database to drop',
         '--yes' => 'Skip the confirmation prompt',
@@ -960,34 +920,7 @@ if (is_dir(VALET_HOME_PATH)) {
      * Reset database in MySQL.
      */
     $app->command('db:reset [database] [-y|--yes]', function (InputInterface $input, OutputInterface $output, $database, $yes) {
-        if (!$database) {
-            $databases = MySql::listDatabases();
-
-            if (empty($databases)) {
-                warning('No MySQL databases found.');
-                return CommandAlias::FAILURE;
-            }
-
-            $database = $this->getHelperSet()->get('question')->ask($input, $output, new ChoiceQuestion('Choose a database to reset:', $databases));
-        }
-
-        if (!$yes) {
-            $question = new ConfirmationQuestion('Are you sure you want to reset the database [' . $database . ']? [y/N] ', false);
-
-            if (!$this->getHelperSet()->get('question')->ask($input, $output, $question)) {
-                warning('No MySQL database was reset.');
-                return CommandAlias::FAILURE;
-            }
-        }
-
-        $isReset = MySql::resetDatabase($database);
-
-        if ($isReset) {
-            info('Database [' . $database . '] has been reset.');
-            return CommandAlias::SUCCESS;
-        }
-
-        return CommandAlias::FAILURE;
+        MySql::resetDatabase($database);
     })->descriptions('Reset a MySQL database', [
         'database' => 'The name of the database to reset',
         '--yes' => 'Skip the confirmation prompt',
@@ -997,45 +930,7 @@ if (is_dir(VALET_HOME_PATH)) {
      * Import a MySQL database.
      */
     $app->command('db:import [database] [file] [--force]', function (InputInterface $input, OutputInterface $output, $database, $file, $force) {
-        if (!$database) {
-            $databases = MySql::listDatabases();
-
-            if (empty($databases)) {
-                warning('No MySQL databases found.');
-                return CommandAlias::FAILURE;
-            }
-
-            $database = $this->getHelperSet()->get('question')->ask($input, $output, new ChoiceQuestion('Choose a database to import to:', $databases));
-        }
-
-        if (!$file) {
-            $file = $this->getHelperSet()->get('question')->ask($input, $output, new Question('Enter the path to the SQL file: '));
-        }
-
-        if (!Filesystem::exists($file)) {
-            warning('The file [' . $file . '] does not exist.');
-            return CommandAlias::FAILURE;
-        }
-
-        if (Mysql::isDatabaseExists($database)) {
-            if (!$force) {
-                $question = new ConfirmationQuestion('Database [' . $database . '] already exists. Do you want to import to this database? [y/N] ', false);
-
-                if (!$this->getHelperSet()->get('question')->ask($input, $output, $question)) {
-                    warning('No MySQL database was imported.');
-                    return CommandAlias::FAILURE;
-                }
-            }
-        }
-
-        $isImported = MySql::importDatabase($database, $file);
-
-        if ($isImported) {
-            info('Database [' . $database . '] has been imported.');
-            return CommandAlias::SUCCESS;
-        }
-
-        return CommandAlias::FAILURE;
+        MySql::importDatabase($database, $file, $force);
     })->descriptions('Import a MySQL database', [
         'database' => 'The name of the database to import to',
         'file' => 'The path to the SQL file to import',
@@ -1045,25 +940,7 @@ if (is_dir(VALET_HOME_PATH)) {
      * Export a MySQL database.
      */
     $app->command('db:export [database] [--sql]', function (InputInterface $input, OutputInterface $output, $database, $sql) {
-        if (!$database) {
-            $databases = MySql::listDatabases();
-
-            if (empty($databases)) {
-                warning('No MySQL databases found.');
-                return CommandAlias::FAILURE;
-            }
-
-            $database = $this->getHelperSet()->get('question')->ask($input, $output, new ChoiceQuestion('Choose a database to export:', $databases));
-        }
-
-        $export = MySql::exportDatabase($database, $sql);
-
-        if ($export) {
-            info('Database [' . $export["database"] . '] has been exported. File saved to [' . $export["filename"] . '].');
-            return CommandAlias::SUCCESS;
-        }
-
-        return CommandAlias::FAILURE;
+        MySql::exportDatabase($database, $sql);
     })->descriptions('Export a MySQL database', [
         'database' => 'The name of the database to export',
         '--sql' => 'Export as SQL file',
@@ -1073,29 +950,11 @@ if (is_dir(VALET_HOME_PATH)) {
      * Configure valet database user for MySQL/MariaDB.
      */
     $app->command('db:configure [--force]', function (InputInterface $input, OutputInterface $output, $force) {
-        if (!$force && Mysql::isConfigured()) {
-            info('Valet database user is already configured. Use --force to reconfigure database user.');
+        MySql::configure($force);
+    })->descriptions('Configure valet database user for MySQL');
 
-            return CommandAlias::SUCCESS;
-        }
-
-        $defaultUser = MySql::getDefaultUser();
-
-        // Ask for the name of the database user
-        $user = $this->getHelperSet()->get('question')->ask($input, $output, new Question('Enter the name of the database user: ', $defaultUser));
-
-        // Ask for the password of the database user
-        $password = $this->getHelperSet()->get('question')->ask($input, $output, new Question('Enter the password of the database user: '));
-
-        // Configure the database user
-        $isConfigured = MySql::configureUser($user, $password);
-
-        if ($isConfigured) {
-            info('Valet database user has been configured.');
-            return CommandAlias::SUCCESS;
-        }
-
-        return CommandAlias::FAILURE;
+    $app->command('test:test', function () {
+        MySql::install();
     })->descriptions('Configure valet database user for MySQL');
 }
 
