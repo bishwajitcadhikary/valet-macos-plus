@@ -59,14 +59,14 @@ $app->command('install', function (OutputInterface $output) {
     output();
     PhpFpm::install();
     output();
-    MySql::install();
-    output();
     DnsMasq::install(Configuration::read()['tld']);
     output();
     Site::renew();
     Nginx::restart();
     output();
     Valet::symlinkToUsersBin();
+    output();
+    MySql::install();
 
     output(PHP_EOL . '<info>Valet installed successfully!</info>');
 })->descriptions('Install the Valet services');

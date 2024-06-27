@@ -3,6 +3,7 @@
 namespace Valet;
 
 use ConsoleComponents\Writer;
+use DomainException;
 use PDO;
 
 class MySql
@@ -27,7 +28,11 @@ class MySql
     public function install(): void
     {
         if (!$this->brew->hasInstalledMySql()) {
-            $this->brew->installOrFail('mysql', []);
+            $this->cli->run('HOMEBREW_NO_INSTALL_CLEANUP=1 brew install mysql', function ($exitCode, $errorOutput) {
+                output($errorOutput);
+
+                throw new DomainException('Brew was unable to install [mysql].');
+            });
             $this->restart();
             $password = Writer::ask(sprintf("Please enter new password for [%s] database user:", static::DEFAULT_USER));
             $this->createValetUser($password);
@@ -94,7 +99,7 @@ class MySql
         /** @var array<string, string> $config */
         $config = $this->configuration->get('mysql', []);
         if (!$force && isset($config['password'])) {
-            Writer::info('Valet database user is already configured. Use --force to reconfigure database user.');
+            info('Valet database user is already configured. Use --force to reconfigure database user.');
             return;
         }
 
@@ -112,7 +117,7 @@ class MySql
         if (!$connection) {
             $confirm = Writer::confirm('Would you like to try again?', true);
             if (!$confirm) {
-                Writer::warn('Valet database user is not configured');
+                warning('Valet database user is not configured');
                 return;
             }
             $this->configure($force);
