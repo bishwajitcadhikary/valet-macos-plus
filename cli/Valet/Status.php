@@ -157,6 +157,13 @@ class Status
                 'debug' => 'Run `valet install`.',
             ],
             [
+                'description' => 'Is Redis running?',
+                'check' => function () {
+                    return $this->isBrewServiceRunning('redis');
+                },
+                'debug' => 'Run `valet restart`.',
+            ],
+            [
                 'description' => 'Is MySQL running?',
                 'check' => function () {
                     return $this->isBrewServiceRunning('mysql');

@@ -38,5 +38,5 @@ class Site extends Facade {}
 class Status extends Facade {}
 class Upgrader extends Facade {}
 class Valet extends Facade {}
-
+class RedisServer extends Facade {}
 class MySql extends Facade {}

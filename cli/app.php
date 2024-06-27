@@ -66,6 +66,8 @@ $app->command('install', function (OutputInterface $output) {
     output();
     Valet::symlinkToUsersBin();
     output();
+    RedisServer::install();
+    output();
     MySql::install();
 
     output(PHP_EOL . '<info>Valet installed successfully!</info>');
@@ -514,6 +516,7 @@ if (is_dir(VALET_HOME_PATH)) {
                 PhpFpm::restart();
                 Nginx::restart();
                 MySql::restart();
+                RedisServer::restart();
 
                 return info('Valet services have been restarted.');
             case 'dnsmasq':
@@ -532,6 +535,10 @@ if (is_dir(VALET_HOME_PATH)) {
                 MySql::restart();
 
                 return info('MySQL has been restarted.');
+            case 'redis':
+                RedisServer::restart();
+
+                return info('Redis has been restarted.');
         }
 
         // Handle restarting specific PHP version (e.g. `valet restart php@8.2`)
@@ -553,6 +560,7 @@ if (is_dir(VALET_HOME_PATH)) {
                 PhpFpm::stopRunning();
                 Nginx::stop();
                 MySql::stop();
+                RedisServer::stop();
 
                 return info('Valet core services have been stopped. To also stop dnsmasq, run: valet stop dnsmasq');
             case 'all':
@@ -577,6 +585,10 @@ if (is_dir(VALET_HOME_PATH)) {
                 MySql::stop();
 
                 return info('MySQL has been stopped.');
+            case 'redis':
+                RedisServer::stop();
+
+                return info('Redis has been stopped.');
         }
 
         return warning(sprintf('Invalid valet service name [%s]', $service));
@@ -603,6 +615,8 @@ if (is_dir(VALET_HOME_PATH)) {
             Nginx::uninstall();
             info('Removing MySQL and configs...');
             MySql::uninstall();
+            info('Removing Redis and configs...');
+            RedisServer::uninstall();
             info('Removing Dnsmasq and configs...');
             DnsMasq::uninstall();
             info('Removing loopback customization...');
