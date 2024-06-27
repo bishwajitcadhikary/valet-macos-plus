@@ -967,8 +967,11 @@ if (is_dir(VALET_HOME_PATH)) {
         MySql::configure($force);
     })->descriptions('Configure valet database user for MySQL');
 
-    $app->command('test:test', function () {
-        MySql::install();
+    $app->command('test', function () {
+        Laravel\Prompts\select(
+            'What role should the user have?',
+            ['Member', 'Contributor', 'Owner'],
+        );
     })->descriptions('Configure valet database user for MySQL');
 }
 

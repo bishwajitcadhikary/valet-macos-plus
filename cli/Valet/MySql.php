@@ -28,7 +28,7 @@ class MySql
     public function install(): void
     {
         if (!$this->brew->hasInstalledMySql()) {
-            $this->cli->run('HOMEBREW_NO_INSTALL_CLEANUP=1 brew install mysql', function ($exitCode, $errorOutput) {
+            $this->cli->run('brew install mysql', function ($exitCode, $errorOutput) {
                 output($errorOutput);
 
                 throw new DomainException('Brew was unable to install [mysql].');
@@ -64,6 +64,7 @@ class MySql
     {
         $this->brew->stopService('mysql');
         $this->brew->uninstallFormula('mysql');
+        $this->brew->cleanupBrew();
         $this->files->unlink(BREW_PREFIX.'/etc/my.cnf');
     }
 
@@ -470,5 +471,11 @@ class MySql
         }
 
         return ['user' => $config['user'], 'password' => $config['password']];
+    }
+
+    private function configureFolderPermissions(): void
+    {
+        $this->cli->runAsUser('chown -R $(whoami) $(brew --prefix)/*');
+        $this->cli->runAsUser('chown -R $(whoami) /usr/local/var/mysql');
     }
 }
