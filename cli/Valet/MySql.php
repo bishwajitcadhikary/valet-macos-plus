@@ -45,12 +45,9 @@ class MySql
     public function install(): void
     {
         if (!$this->brew->hasInstalledMySql()) {
-            $this->cli->run('brew install mysql', function ($exitCode, $errorOutput) {
-                output($errorOutput);
+            $this->brew->installOrFail('mysql');
 
-                throw new DomainException('Brew was unable to install [mysql].');
-            });
-            $this->cli->run('brew services start mysql');
+            $this->brew->restartService('mysql');
 
             $password = text(sprintf("Please enter new password for [%s] database user:", static::DEFAULT_USER));
             $this->createValetUser($password);

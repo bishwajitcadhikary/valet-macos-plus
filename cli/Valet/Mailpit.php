@@ -25,6 +25,11 @@ class Mailpit
         }
     }
 
+    public function restart(): void
+    {
+        $this->brew->restartService('mailpit');
+    }
+
     public function stop(): void
     {
         $this->brew->stopService('mailpit');
