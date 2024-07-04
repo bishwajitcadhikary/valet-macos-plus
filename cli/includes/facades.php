@@ -40,3 +40,5 @@ class Upgrader extends Facade {}
 class Valet extends Facade {}
 class RedisServer extends Facade {}
 class MySql extends Facade {}
+class Mailpit extends Facade {}
+class PhpMyAdmin extends Facade {}

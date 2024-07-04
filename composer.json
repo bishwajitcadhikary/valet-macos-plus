@@ -35,6 +35,7 @@
     },
     "require": {
         "php": "^8.0",
+        "ext-pdo": "*",
         "illuminate/collections": "^8.0|^9.0|^10.0|^11.0",
         "illuminate/container": "~5.1|^6.0|^7.0|^8.0|^9.0|^10.0|^11.0",
         "mnapoli/silly": "^1.5",
@@ -42,8 +43,6 @@
         "symfony/process": "^3.0|^4.0|^5.0|^6.0|^7.0",
         "guzzlehttp/guzzle": "^6.0|^7.4",
         "symfony/event-dispatcher": "^3.0|^4.0|^5.0|^6.0|^7.0",
-        "ext-pdo": "*",
-        "uttamrabadiya/console-components": "^1.0",
         "laravel/prompts": "^0.1.24"
     },
     "require-dev": {

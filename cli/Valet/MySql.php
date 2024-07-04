@@ -2,14 +2,28 @@
 
 namespace Valet;
 
-use ConsoleComponents\Writer;
 use DomainException;
+use JsonException;
 use PDO;
+use PDOException;
+use PDOStatement;
+use function date;
+use function getcwd;
+use function is_writable;
+use function Laravel\Prompts\confirm;
+use function Laravel\Prompts\error;
+use function Laravel\Prompts\select;
+use function Laravel\Prompts\text;
+use function Laravel\Prompts\warning;
+use function Laravel\Prompts\info;
+use function sprintf;
+use function stristr;
+use function time;
 
 class MySql
 {
-    public CONST DEFAULT_USER = 'valet';
-    public CONST SYSTEM_DATABASES = [
+    public const DEFAULT_USER = 'valet';
+    public const SYSTEM_DATABASES = [
         'information_schema',
         'mysql',
         'performance_schema',
@@ -20,11 +34,14 @@ class MySql
     private ?PDO $pdoConnection = null;
 
     public function __construct(
-        public Brew $brew,
-        public Filesystem $files,
+        public Brew          $brew,
+        public Filesystem    $files,
         public Configuration $configuration,
-        public CommandLine $cli,
-    ) {}
+        public CommandLine   $cli,
+    )
+    {
+    }
+
     public function install(): void
     {
         if (!$this->brew->hasInstalledMySql()) {
@@ -33,10 +50,11 @@ class MySql
 
                 throw new DomainException('Brew was unable to install [mysql].');
             });
-            $this->restart();
-            $password = Writer::ask(sprintf("Please enter new password for [%s] database user:", static::DEFAULT_USER));
+            $this->cli->run('brew services start mysql');
+
+            $password = text(sprintf("Please enter new password for [%s] database user:", static::DEFAULT_USER));
             $this->createValetUser($password);
-        }else{
+        } else {
             $this->configure();
         }
     }
@@ -65,7 +83,7 @@ class MySql
         $this->brew->stopService('mysql');
         $this->brew->uninstallFormula('mysql');
         $this->brew->cleanupBrew();
-        $this->files->unlink(BREW_PREFIX.'/etc/my.cnf');
+        $this->files->unlink(BREW_PREFIX . '/etc/my.cnf');
     }
 
     /**
@@ -74,11 +92,11 @@ class MySql
     private function createValetUser(string|null $password = null): void
     {
         $success = true;
-        $query = "sudo mysql -e \"CREATE USER '".static::DEFAULT_USER."'@'localhost' IDENTIFIED WITH mysql_native_password BY '".$password."';GRANT ALL PRIVILEGES ON *.* TO '".static::DEFAULT_USER."'@'localhost' WITH GRANT OPTION;FLUSH PRIVILEGES;\"";
+        $query = "sudo mysql -e \"CREATE USER '" . static::DEFAULT_USER . "'@'localhost' IDENTIFIED WITH mysql_native_password BY '" . $password . "';GRANT ALL PRIVILEGES ON *.* TO '" . static::DEFAULT_USER . "'@'localhost' WITH GRANT OPTION;FLUSH PRIVILEGES;\"";
         $this->cli->run(
             $query,
             function ($statusCode, $error) use (&$success) {
-                warning('Setting password for valet user failed due to `['.$statusCode.'] '.$error.'`');
+                warning('Setting password for valet user failed due to `[' . $statusCode . '] ' . $error . '`');
                 $success = false;
             }
         );
@@ -108,15 +126,17 @@ class MySql
         if (!empty($config['user'])) {
             $defaultUser = $config['user'];
         }
-        /** @var string $user */
-        $user = Writer::ask('Please enter MySQL/MariaDB user:', $defaultUser);
 
-        /** @var string $password */
-        $password = Writer::ask('Please enter MySQL/MariaDB password:');
+        $user = text(
+            label: 'Please enter MySQL user:',
+            default: $defaultUser,
+            required: true
+        );
+        $password = text('Please enter MySQL password:');
 
         $connection = $this->validateCredentials($user, $password);
         if (!$connection) {
-            $confirm = Writer::confirm('Would you like to try again?', true);
+            $confirm = confirm('Would you like to try again?', true);
             if (!$confirm) {
                 warning('Valet database user is not configured');
                 return;
@@ -127,17 +147,48 @@ class MySql
         $config['user'] = $user;
         $config['password'] = $password;
         $this->configuration->set('mysql', $config);
-        Writer::info('Database user configured successfully');
+        info('Database user configured successfully');
     }
 
-    public function listDatabases()
+    public function listDatabases(): bool|array
     {
         $systemDatabases = static::SYSTEM_DATABASES;
         // Ignore system databases.
-        $query = $this->query("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME NOT IN ('".implode("','", $systemDatabases)."')");
+        $query = $this->query("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME NOT IN ('" . implode("','", $systemDatabases) . "')");
         $query->execute();
 
         return $query->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    public function listDatabasesWithFullInfo()
+    {
+        /**
+         * We need to fetch the databases with full information.
+         * | Database | Tables | Rows | Size | Collation |
+         * |----------|--------|------|------|-----------|
+         */
+
+        $query = $this->query("
+            SELECT
+                s.schema_name AS 'Database',
+                COUNT(t.table_name) AS 'Tables',
+                SUM(t.table_rows) AS 'Rows',
+                SUM(t.data_length + t.index_length) AS 'Size',
+                s.default_collation_name AS 'Collation'
+            FROM
+                information_schema.schemata s
+            LEFT JOIN
+                information_schema.tables t
+            ON
+                s.schema_name = t.table_schema
+            WHERE
+                s.schema_name NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
+            GROUP BY
+                s.schema_name, s.default_collation_name
+        ");
+        $query->execute();
+
+        return $query->fetchAll();
     }
 
     /**
@@ -146,7 +197,7 @@ class MySql
     public function createDatabase(string|null $database = null): bool
     {
         if ($database === null) {
-            $database = Writer::ask('Enter the name of the database:');
+            $database = text('Enter the name of the database:');
             if (!$database) {
                 warning('No new MySQL database was created.');
                 return false;
@@ -166,7 +217,7 @@ class MySql
 
         $isCreated = (bool)$this->query("CREATE DATABASE `$database`");
 
-        if (!$isCreated){
+        if (!$isCreated) {
             warning("Failed to create database `$database`.");
 
             return false;
@@ -190,11 +241,15 @@ class MySql
                 return false;
             }
 
-            $database = Writer::choice('Which database would you like to drop?', $databases);
+            $database = select(
+                label: 'Which database would you like to drop?',
+                options: $databases,
+                hint: 'Use arrow keys to navigate, press ↵ to drop.'
+            );
         }
 
         if (!$yes) {
-            $confirm = Writer::confirm('Are you sure you want to drop the database?');
+            $confirm = confirm('Are you sure you want to drop the database?');
             if (!$confirm) {
                 warning('No MySQL databases were dropped.');
                 return false;
@@ -214,7 +269,7 @@ class MySql
 
         $isDropped = (bool)$this->query("DROP DATABASE `$database`");
 
-        if (!$isDropped){
+        if (!$isDropped) {
             warning("Failed to drop database `$database`.");
 
             return false;
@@ -238,23 +293,27 @@ class MySql
                 return false;
             }
 
-            $database = Writer::choice('Which database would you like to reset?', $databases);
+            $database = select(
+                label: 'Which database would you like to reset?',
+                options: $databases,
+                hint: 'Use arrow keys to navigate, press ↵ to reset.'
+            );
         }
 
         if (!$yes) {
-            $confirm = Writer::confirm('Are you sure you want to reset the database?');
+            $confirm = confirm('Are you sure you want to reset the database?');
             if (!$confirm) {
                 warning('No MySQL databases were reset.');
                 return false;
             }
         }
 
-        if (!$this->dropDatabase($database, true)) {
+        if (!$this->query("DROP DATABASE IF EXISTS `$database`")) {
             warning("Failed to reset database `$database`.");
             return false;
         }
 
-        if (!$this->createDatabase($database)) {
+        if (!$this->query("CREATE DATABASE `$database`")) {
             warning("Failed to reset database `$database`.");
             return false;
         }
@@ -277,11 +336,18 @@ class MySql
                 return false;
             }
 
-            $database = Writer::choice('Which database would you like to import to?', $databases);
+            $database = select(
+                label: 'Which database would you like to import to?',
+                options: $databases,
+                hint: 'Use arrow keys to navigate, press ↵ to select.'
+            );
         }
 
         if (!$file) {
-            $file = Writer::ask('Enter the path to the SQL file:');
+            $file = text(
+                label: 'Enter the path to the SQL file:',
+                placeholder: 'e.g. /path/to/file.sql'
+            );
         }
 
         if (!$this->files->exists($file)) {
@@ -291,14 +357,14 @@ class MySql
 
         if ($this->isDatabaseExists($database)) {
             if (!$force) {
-                $question = Writer::confirm('The database already exists. Do you want to overwrite it?');
+                $question = confirm('The database already exists. Do you want to overwrite it?');
 
                 if (!$question) {
                     warning('No MySQL databases were imported.');
                     return false;
                 }
             }
-        }else{
+        } else {
             $this->createDatabase($database);
         }
 
@@ -309,17 +375,17 @@ class MySql
 
         $gzip = '';
         $sqlFile = '';
-        if (\stristr($file, '.gz')) {
+        if (stristr($file, '.gz')) {
             $file = escapeshellarg($file);
             $gzip = "zcat {$file} | ";
         } else {
             $file = escapeshellarg($file);
-            $sqlFile = " < {$file}";
+            $sqlFile = " < $file";
         }
         $database = escapeshellarg($database);
         $credentials = $this->getCredentials();
         $this->cli->run(
-            \sprintf(
+            sprintf(
                 '%smysql -u %s -p%s %s %s',
                 $gzip,
                 $credentials['user'],
@@ -343,14 +409,41 @@ class MySql
                 return false;
             }
 
-            $database = Writer::choice('Which database would you like to export?', $databases);
+            $database = select(
+                label: 'Which database would you like to export?',
+                options: $databases,
+                hint: 'Use arrow keys to navigate, press ↵ to select.'
+            );
         }
 
-        $filename = $database.'-'.\date('Y-m-d-H-i-s', \time());
-        $filename = $exportAsSql ? $filename.'.sql' : $filename.'.sql.gz';
+        $exportDir = getcwd();
+
+        $isExportToCurrentDir = confirm(
+            label: "Would you like to export the database to the current directory?",
+            hint: "Directory: $exportDir"
+        );
+
+        if (!$isExportToCurrentDir) {
+            $exportDir = text(
+                label: 'Enter the path to the directory where the database will be exported:',
+                placeholder: 'e.g. /path/to/directory',
+                required: true
+            );
+        }
+
+        $this->files->ensureDirExists($exportDir);
+
+        if (!is_writable($exportDir)) {
+            warning("The current directory is not writable.");
+            return false;
+        }
+
+        $filename = $database . '-' . date('Y-m-d-H-i-s', time());
+        $filename = $exportAsSql ? $filename . '.sql' : $filename . '.sql.gz';
+        $filename = $exportDir . '/' . $filename;
 
         $credentials = $this->getCredentials();
-        $command = \sprintf(
+        $command = sprintf(
             'mysqldump -u %s -p%s %s %s > %s',
             $credentials['user'],
             $credentials['password'],
@@ -361,16 +454,9 @@ class MySql
 
         $this->cli->runAsUser($command);
 
-        $fullPath = \getcwd().'/'.$filename;
-
-        info("The $database database has been exported to the $fullPath file.");
+        info("The $database database has been exported to the `$filename` file.");
 
         return true;
-    }
-
-    public function getDefaultUser(): string
-    {
-        return static::DEFAULT_USER;
     }
 
     public function isDatabaseExists($database): bool
@@ -378,7 +464,7 @@ class MySql
         $query = $this->query("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '$database'");
         $query->execute();
 
-        return (bool) $query->rowCount();
+        return (bool)$query->rowCount();
     }
 
     public function isSystemDatabase($database): bool
@@ -389,7 +475,7 @@ class MySql
     /**
      * Run Mysql query.
      *
-     * @return bool|\PDOStatement|void
+     * @return bool|PDOStatement|void
      */
     private function query(string $query)
     {
@@ -397,7 +483,7 @@ class MySql
 
         try {
             return $link->query($query);
-        } catch (\PDOException $e) {
+        } catch (PDOException $e) {
             warning($e->getMessage());
         }
     }
@@ -417,7 +503,7 @@ class MySql
             $connection->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
             return true;
-        } catch (\PDOException $e) {
+        } catch (PDOException $e) {
             warning('Invalid database credentials');
 
             return false;
@@ -445,8 +531,8 @@ class MySql
             $this->pdoConnection->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
             return $this->pdoConnection;
-        } catch (\PDOException $e) {
-            warning('Failed to connect MySQL due to :`'.$e->getMessage().'`');
+        } catch (PDOException $e) {
+            warning('Failed to connect MySQL due to :`' . $e->getMessage() . '`');
             exit;
         }
     }
@@ -454,7 +540,7 @@ class MySql
     /**
      * Returns the stored password from the config. If not configured returns the default root password.
      * @return array{user: string, password: string}
-     * @throws \JsonException
+     * @throws JsonException
      */
     private function getCredentials(): array
     {
@@ -471,11 +557,5 @@ class MySql
         }
 
         return ['user' => $config['user'], 'password' => $config['password']];
-    }
-
-    private function configureFolderPermissions(): void
-    {
-        $this->cli->runAsUser('chown -R $(whoami) $(brew --prefix)/*');
-        $this->cli->runAsUser('chown -R $(whoami) /usr/local/var/mysql');
     }
 }

@@ -11,10 +11,12 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Valet\Drivers\ValetDriver;
-use function Valet\info;
+use function Laravel\Prompts\info;
+use function Laravel\Prompts\table;
+use function Laravel\Prompts\warning;
+use function Valet\abbreviate_number;
+use function Valet\human_readable_size;
 use function Valet\output;
-use function Valet\table;
-use function Valet\warning;
 use function Valet\writer;
 
 /**
@@ -62,15 +64,20 @@ $app->command('install', function (OutputInterface $output) {
     DnsMasq::install(Configuration::read()['tld']);
     output();
     Site::renew();
+    output();
     Nginx::restart();
     output();
     Valet::symlinkToUsersBin();
     output();
+    MySql::install();
+    output();
     RedisServer::install();
     output();
-    MySql::install();
+    Mailpit::install();
+    output();
+    PhpMyAdmin::install();
 
-    output(PHP_EOL . '<info>Valet installed successfully!</info>');
+    info("Valet MacOs Plus has been installed successfully.");
 })->descriptions('Install the Valet services');
 
 /**
@@ -609,24 +616,40 @@ if (is_dir(VALET_HOME_PATH)) {
 
             info('Removing certificates for all Secured sites...');
             Site::unsecureAll();
+
             info('Removing certificate authority...');
             Site::removeCa();
+
             info('Removing Nginx and configs...');
             Nginx::uninstall();
+
+            info('Removing PHPMyAdmin...');
+            PhpMyAdmin::uninstall();
+
+            info('Removing Mailpit...');
+            Mailpit::uninstall();
+
             info('Removing MySQL and configs...');
             MySql::uninstall();
+
             info('Removing Redis and configs...');
             RedisServer::uninstall();
+
             info('Removing Dnsmasq and configs...');
             DnsMasq::uninstall();
+
             info('Removing loopback customization...');
             Site::uninstallLoopback();
+
             info('Removing Valet configs and customizations...');
             Configuration::uninstall();
+
             info('Removing PHP versions and configs...');
             PhpFpm::uninstall();
+
             info('Attempting to unlink Valet from bin path...');
             Valet::unlinkFromUsersBin();
+
             info('Removing sudoers entries...');
             Brew::removeSudoersEntry();
             Valet::removeSudoersEntry();
@@ -894,19 +917,24 @@ if (is_dir(VALET_HOME_PATH)) {
      *
      */
     $app->command('db:list', function (OutputInterface $output) {
-        $databases = MySql::listDatabases();
+        $databases = MySql::listDatabasesWithFullInfo();
 
         if (empty($databases)) {
             warning('No MySQL databases found.');
-
             return CommandAlias::SUCCESS;
         }
 
-        table(['Database'], collect($databases)
-            ->sort()
-            ->map(function ($database) {
-                return [$database];
-            })->all());
+        $formattedDatabases = collect($databases)->map(function ($database) {
+            return [
+                'Database' => $database['Database'],
+                'Tables' => abbreviate_number($database['Tables']),
+                'Rows' => abbreviate_number($database['Rows']),
+                'Size' => human_readable_size($database['Size'] ?? 0),
+                'Collation' => $database['Collation'],
+            ];
+        })->sort()->values()->all();
+
+        table(['Database', 'Tables', 'Rows', 'Size', 'Collation'], $formattedDatabases);
 
         return CommandAlias::SUCCESS;
     })->descriptions('List all MySQL databases');
@@ -915,7 +943,7 @@ if (is_dir(VALET_HOME_PATH)) {
      * Create a new MySQL database.
      */
     $app->command('db:create [database]', function (InputInterface $input, OutputInterface $output, $database) {
-       MySql::createDatabase($database);
+        MySql::createDatabase($database);
     })->descriptions('Create a new MySQL database', [
         'database' => 'The name of the database to create',
     ]);
@@ -968,10 +996,7 @@ if (is_dir(VALET_HOME_PATH)) {
     })->descriptions('Configure valet database user for MySQL');
 
     $app->command('test', function () {
-        Laravel\Prompts\select(
-            'What role should the user have?',
-            ['Member', 'Contributor', 'Owner'],
-        );
+        PhpMyAdmin::install();
     })->descriptions('Configure valet database user for MySQL');
 }
 

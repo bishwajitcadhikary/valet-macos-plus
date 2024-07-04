@@ -191,3 +191,36 @@ function user(): string
 
     return $_SERVER['SUDO_USER'];
 }
+
+
+function human_readable_size($size): string
+{
+    $units = ['B', 'kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+    $unit = 0;
+
+    while ($size >= 1024 && $unit < count($units) - 1) {
+        $size /= 1024;
+        $unit++;
+    }
+
+    return round($size, 2) . ' ' . $units[$unit];
+}
+
+function abbreviate_number($number): string
+{
+    // Array of abbreviations
+    $abbreviations = ['', 'K', 'M', 'B', 'T'];
+
+    // Determine the appropriate abbreviation
+    $abbreviation_index = 0;
+    while ($number >= 1000 && $abbreviation_index < count($abbreviations) - 1) {
+        $number /= 1000;
+        $abbreviation_index++;
+    }
+
+    // Round to two decimal places if needed
+    $formatted_number = round($number, 2);
+
+    // Append the abbreviation
+    return $formatted_number . $abbreviations[$abbreviation_index];
+}
